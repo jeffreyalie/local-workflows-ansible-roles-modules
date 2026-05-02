@@ -1,0 +1,139 @@
+name: "Ansible Deploy (Real VM)"
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment (dev/prod)"
+        required: true
+
+      vm_name:
+        description: "VM name (e.g. dev01 / prod01)"
+        required: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    env:
+      TF_VAR_lxd_address: ${{ secrets.LXD_ADDRESS }}
+      TF_VAR_ansible_ssh_public_key: ${{ secrets.ANSIBLE_SSH_PUBLIC_KEY }}
+
+    steps:
+      # --------------------------------------------------
+      # Checkout
+      # --------------------------------------------------
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      # --------------------------------------------------
+      # Validate Environment
+      # --------------------------------------------------
+      - name: Validate Environment
+        run: |
+          ENV="${{ inputs.environment }}"
+
+          if [ "$ENV" != "dev" ] && [ "$ENV" != "prod" ]; then
+            echo "::error:: Invalid environment: $ENV (must be dev or prod)"
+            exit 1
+          fi
+
+      # --------------------------------------------------
+      # Install dependencies
+      # --------------------------------------------------
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ansible netcat-openbsd
+
+      # --------------------------------------------------
+      # Set Variables
+      # --------------------------------------------------
+      - name: Set Variables
+        id: vars
+        run: |
+          ENV="${{ inputs.environment }}"
+          VM="${{ inputs.vm_name }}"
+
+          echo "env=$ENV" >> $GITHUB_OUTPUT
+          echo "vm_name=$VM" >> $GITHUB_OUTPUT
+
+          echo "working_dir=terraform/env/${ENV}" >> $GITHUB_OUTPUT
+          echo "state_key=state/${ENV}/${VM}/terraform.tfstate" >> $GITHUB_OUTPUT
+
+      # --------------------------------------------------
+      # Setup Terraform
+      # --------------------------------------------------
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      # --------------------------------------------------
+      # Terraform Init (MinIO backend)
+      # --------------------------------------------------
+      - name: Terraform Init
+        working-directory: ${{ steps.vars.outputs.working_dir }}
+        run: |
+          terraform init \
+            -backend-config="endpoint=${{ secrets.MINIO_ENDPOINT }}" \
+            -backend-config="bucket=terraform-state" \
+            -backend-config="key=${{ steps.vars.outputs.state_key }}" \
+            -backend-config="region=us-east-1" \
+            -backend-config="access_key=${{ secrets.MINIO_ACCESS_KEY }}" \
+            -backend-config="secret_key=${{ secrets.MINIO_SECRET_KEY }}" \
+            -backend-config="skip_credentials_validation=true" \
+            -backend-config="skip_metadata_api_check=true" \
+            -backend-config="skip_requesting_account_id=true" \
+            -backend-config="force_path_style=true"
+
+      # --------------------------------------------------
+      # Get VM IP from Terraform state
+      # --------------------------------------------------
+      - name: Get VM IP
+        id: tfout
+        working-directory: ${{ steps.vars.outputs.working_dir }}
+        run: |
+          IP=$(terraform output -raw vm_ip)
+          echo "vm_ip=$IP" >> $GITHUB_OUTPUT
+
+      # --------------------------------------------------
+      # Wait for SSH
+      # --------------------------------------------------
+      - name: Wait for SSH
+        run: |
+          for i in {1..20}; do
+            nc -z ${{ steps.tfout.outputs.vm_ip }} 22 && exit 0
+            echo "Waiting for SSH..."
+            sleep 10
+          done
+
+          echo "::error:: SSH not ready"
+          exit 1
+
+      # --------------------------------------------------
+      # Setup SSH Key
+      # --------------------------------------------------
+      - name: Setup SSH Key
+        run: |
+          mkdir -p ~/.ssh
+
+          echo "${{ secrets.ANSIBLE_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+
+          chmod 600 ~/.ssh/id_rsa
+          chmod 700 ~/.ssh
+
+      # --------------------------------------------------
+      # Create Inventory
+      # --------------------------------------------------
+      - name: Create Inventory
+        run: |
+          echo "[vm]" > inventory.ini
+          echo "${{ steps.tfout.outputs.vm_ip }} ansible_user=ansible ansible_ssh_private_key_file=$HOME/.ssh/id_rsa" >> inventory.ini
+
+      # --------------------------------------------------
+      # Run Ansible
+      # --------------------------------------------------
+      - name: Ansible Deploy
+        run: |
+          ANSIBLE_HOST_KEY_CHECKING=False \
+          ansible-playbook -i inventory.ini ansible/playbook.yml
+          

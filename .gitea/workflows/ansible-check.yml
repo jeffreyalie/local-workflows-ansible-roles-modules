@@ -1,0 +1,57 @@
+name: "Ansible Check (Lint + Local)"
+
+on:
+  pull_request: # This will run on PRs to validate Ansible code before merging
+  workflow_dispatch:  # This enables the "Run workflow" button in the UI
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      # --------------------------------------------------
+      # Checkout
+      # --------------------------------------------------
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      # --------------------------------------------------
+      # Install Ansible + pipx
+      # --------------------------------------------------
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ansible pipx
+          pipx ensurepath
+
+      # --------------------------------------------------
+      # Install Ansible Lint
+      # --------------------------------------------------
+      - name: Install Ansible Lint
+        run: |
+          pipx install ansible-lint --include-deps
+
+      # --------------------------------------------------
+      # Run Lint
+      # --------------------------------------------------
+      - name: Run Ansible Lint
+        run: |
+          pipx run ansible-lint ansible/playbook.yml --force-color
+
+      # --------------------------------------------------
+      # Syntax Check
+      # --------------------------------------------------
+      - name: Ansible Syntax Check
+        run: |
+          ansible-playbook ansible/playbook.yml --syntax-check
+
+      # --------------------------------------------------
+      # Optional: Local Dry Run (safe)
+      # --------------------------------------------------
+      # - name: Ansible Dry Run (Local)
+      #   run: |
+      #     ansible-playbook ansible/playbook.yml \
+      #       -i localhost, \
+      #       -c local \
+      #       --check
+            

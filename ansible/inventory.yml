@@ -1,0 +1,6 @@
+all:
+  children:
+    lxd_vms:
+      hosts:
+        target_vm:
+          ansible_host: "{{ lookup('env', 'VM_IP') }}"
