@@ -19,7 +19,7 @@ Deploy Ubuntu 24.04 virtual machines on LXD via Terraform (module-based), config
 - [Local Usage](#local-usage)
 - [Destroying a VM](#destroying-a-vm)
 - [Design Notes](#design-notes)
-- [Created and Maintained By](#infrastructure-created-and-maintained)
+- [Created and Maintained By](#infrastructure-created-and-maintained-by)
 
 ---
 
@@ -455,10 +455,10 @@ When ready to scale, the natural evolution paths are:
 - Replace Gitea org secrets with OpenBao for dynamic, short-lived credentials
 
 ---
-## Infrastructure Created and Maintained
+## Infrastructure Created and Maintained By
 
 **Ali Ahmed**  
-Building infrastructure, automation, and DevOps workflows
+Building infrastructure, automation, and DevOps workflows  
 
 **Contact**
 
