@@ -1,19 +1,15 @@
-# infrastructure-automation
+# Reusable Terraform + Ansible Infrastructure Workflows
 
-GitOps pipeline for provisioning and configuring LXD virtual machines using Terraform and Ansible, orchestrated through Gitea Actions with MinIO as the Terraform state backend.
+This repository provides a comprehensive set of reusable Gitea Actions workflows for managing LXD-based Ubuntu VM infrastructure using Terraform and Ansible. The workflows support automated provisioning, configuration, and deployment across multiple environments.
 
----
+## Summary
 
-## Stack Overview
-
-| Component | Role | Homelab equivalent of |
-|---|---|---|
-| **Gitea Actions** | CI/CD orchestration | GitHub Actions |
-| **LXD / KVM** | VM hypervisor | AWS EC2 |
-| **Terraform** | VM provisioning (LXD provider v2) | Terraform Cloud |
-| **MinIO** | Terraform state backend (S3-compatible) | AWS S3 |
-| **Ansible** | Post-provisioning VM configuration | Ansible Tower |
-| **cloud-init** | First-boot VM setup (users, SSH, packages) | EC2 user data |
+The repository implements a complete infrastructure-as-code solution that:
+- **Provisions Ubuntu 24.04 VMs** on LXD using Terraform modules
+- **Configures VMs** with cloud-init for automated setup
+- **Deploys applications** via Ansible playbooks
+- **Manages environments** (dev/prod) with separate state management
+- **Provides CI/CD automation** through reusable Gitea Actions workflows
 
 ---
 
@@ -21,289 +17,376 @@ GitOps pipeline for provisioning and configuring LXD virtual machines using Terr
 
 ```
 .
-├── .gitea/
-│   └── workflows/
-│       ├── terraform-check.yml      # Lint + validate on PR
-│       ├── terraform-plan.yml       # Manual plan (workflow_dispatch)
-│       ├── terraform-apply.yml      # Manual apply (workflow_dispatch)
-│       ├── terraform-destroy.yml    # Manual destroy with confirmation gate
-│       ├── ansible-check.yml        # Ansible lint + syntax check on PR
-│       └── ansible-deploy.yml       # Run Ansible against a live VM
-├── ansible/
-│   ├── inventory.yml                # Dynamic inventory (VM_IP from env)
-│   ├── playbook.yml                 # Entry playbook (common + docker roles)
-│   └── roles/
-│       ├── common/tasks/main.yml    # Base packages (curl, git, ca-certs…)
-│       └── docker/tasks/main.yml    # Docker CE install + service enable
-└── terraform/
-    ├── env/
-    │   ├── dev/
-    │   │   ├── backend.tf           # S3 (MinIO) backend — no values here
-    │   │   ├── providers.tf         # LXD provider (TLS cert auth)
-    │   │   ├── main.tf              # Calls lxd-vm module
-    │   │   ├── variables.tf
-    │   │   ├── outputs.tf
-    │   │   └── dev01.tfvars         # Per-VM configuration
-    │   └── prod/
-    │       ├── backend.tf
-    │       ├── providers.tf
-    │       ├── main.tf
-    │       ├── variables.tf
-    │       ├── outputs.tf
-    │       └── prod01.tfvars
-    └── modules/
-        └── lxd-vm/
-            ├── main.tf              # lxd_instance resource + cloud-init render
-            ├── variables.tf
-            ├── outputs.tf
-            └── cloud-init/
-                └── user-data.yaml   # Ansible user, SSH hardening, packages
+├── .gitea/workflows/                    # Reusable CI/CD workflows
+│   ├── reusable-terraform-check.yml    # Terraform validation
+│   ├── reusable-terraform-plan.yml      # Infrastructure planning
+│   ├── reusable-terraform-apply.yml    # Infrastructure deployment
+│   ├── reusable-terraform-destroy.yml   # Infrastructure cleanup
+│   ├── reusable-ansible-check.yml       # Ansible validation
+│   └── reusable-ansible-deploy.yml      # Application deployment
+├── terraform/                          # Infrastructure code
+│   ├── modules/                        # Reusable Terraform modules
+│   │   └── lxd-vm/                     # LXD VM provisioning module
+│   │       ├── main.tf                 # VM resource definitions
+│   │       ├── variables.tf            # Module variables
+│   │       ├── outputs.tf              # Module outputs
+│   │       └── cloud-init/             # VM initialization scripts
+│   │           └── user-data.yaml     # cloud-init template
+│   └── env/                           # Environment-specific configurations
+│       ├── dev/                       # Development environment
+│       │   ├── dev01.tfvars          # Dev VM configuration
+│       │   ├── main.tf               # Dev environment resources
+│       │   ├── providers.tf          # LXD provider configuration
+│       │   ├── variables.tf          # Dev environment variables
+│       │   └── outputs.tf            # Dev environment outputs
+│       └── prod/                      # Production environment
+│           ├── prod01.tfvars         # Prod VM configuration
+│           ├── main.tf               # Prod environment resources
+│           ├── providers.tf          # LXD provider configuration
+│           ├── variables.tf          # Prod environment variables
+│           └── outputs.tf            # Prod environment outputs
+├── ansible/                           # Configuration management
+│   ├── playbook.yml                   # Main Ansible playbook
+│   ├── inventory.yml                  # Dynamic inventory (generated)
+│   └── roles/                        # Ansible role definitions
+│       ├── common/                   # Common system configuration
+│       │   └── tasks/
+│       │       └── main.yml          # Common package installation
+│       └── docker/                   # Docker installation and configuration
+│           └── tasks/
+│               └── main.yml          # Docker setup tasks
+└── reusable-workflow-client-repo/    # Usage examples
 ```
 
 ---
 
-## Prerequisites
+## Module Structure & Functionality
 
-| Requirement | Notes |
-|---|---|
-| Ubuntu 24.04 host | With LXD installed via snap |
-| Gitea + Gitea Actions runner | Runner registered to the `Infra` org |
-| LXD cached image | `ubuntu-24-04-vm` — imported via `lxc image copy` |
-| MinIO instance | Bucket `terraform-state` created, credentials ready |
-| Terraform ≥ 1.5 | Installed on the runner |
-| LXD TLS client certificate | Generated and trusted on the LXD host |
+### LXD VM Module (`terraform/modules/lxd-vm/`)
 
----
+#### Core Components:
+- **`main.tf`**: Defines LXD instance with cloud-init configuration
+- **`variables.tf`**: Module input parameters
+- **`outputs.tf`**: VM connection and configuration outputs
+- **`cloud-init/user-data.yaml`**: Automated VM initialization
 
-## Secrets & Variables
+#### Key Features:
+- **Dynamic VM naming**: `{environment}-{os_type}-{vm_name}` (e.g., `dev-ubuntu-dev01`)
+- **Cloud-init automation**: Sets up SSH access, users, packages, and networking
+- **Network configuration**: DHCP on primary interface with proper routing
+- **SSH hardening**: Password authentication disabled, root login disabled
+- **Resource management**: CPU, memory, and disk allocation
 
-Configure all secrets under **Gitea → Infra org → Settings → Secrets and Variables**.
+#### Required Variables:
+```terraform
+# LXD Configuration
+variable "lxd_address" {
+  description = "LXD server address"
+  type        = string
+}
 
-| Secret | Description |
-|---|---|
-| `LXD_ADDRESS` | LXD API hostname or IP (without `https://` or port) |
-| `LXD_CLIENT_CERT` | Contents of the runner's LXD client certificate (`.crt`) |
-| `LXD_CLIENT_KEY` | Contents of the runner's LXD client private key (`.key`) |
-| `ANSIBLE_SSH_PUBLIC_KEY` | Public key injected into VMs for the `ansible` user |
-| `ANSIBLE_SSH_PRIVATE_KEY` | Private key used by the runner to SSH into VMs |
-| `MINIO_ENDPOINT` | MinIO S3 API endpoint (e.g. `http://10.x.x.x:9000`) |
-| `MINIO_ACCESS_KEY` | MinIO access key |
-| `MINIO_SECRET_KEY` | MinIO secret key |
+# VM Configuration
+variable "vm_name" {
+  description = "VM identifier (e.g., dev01)"
+  type        = string
+}
 
-> **LXD certificate setup** — the runner writes the cert/key pair to `~/.config/lxc/`
-> at job start. The LXD provider picks them up automatically.
+variable "environment" {
+  description = "Environment (dev/prod)"
+  type        = string
+}
 
----
+variable "os_type" {
+  type        = string
+}
 
-## VM Naming Convention
+variable "storage_pool" {
+  description = "LXD storage pool name"
+  type        = string
+}
 
-VM names are composed automatically inside the `lxd-vm` module:
+variable "disk_size" {
+  description = "Disk size (e.g., 20GB)"
+  type        = string
+}
 
-```
-<environment>-<os_type>-<vm_name>
-```
+variable "cpu_count" {
+  description = "Number of CPUs"
+  type        = number
+}
 
-Example: inputs `environment=prod`, `os_type=ubuntu-vm`, `vm_name=prod01`
-produce the LXD instance name **`prod-ubuntu-vm-prod01`**.
+variable "memory_size" {
+  description = "Memory size (e.g., 2GB)"
+  type        = string
+}
 
-The `vm_name` input must match the `.tfvars` filename:
-
-```
-terraform/env/prod/prod01.tfvars  →  vm_name input = prod01
-```
-
----
-
-## Workflows
-
-### `terraform-check` — runs on Pull Request
-
-Validates all Terraform code before merging. No backend connection required.
-
-Steps: `fmt -check` → `init -backend=false` → `validate` → `tflint`
-
----
-
-### `terraform-plan` — manual (`workflow_dispatch`)
-
-Runs a full `terraform plan` against a live environment and real MinIO state.
-
-**Inputs:**
-
-| Input | Example | Description |
-|---|---|---|
-| `environment` | `dev` or `prod` | Must match folder under `terraform/env/` |
-| `vm_name` | `dev01` | Must match a `.tfvars` file in that env folder |
-
-**Steps:** checkout → validate inputs → validate tfvars exists → setup TF → write LXD certs → `terraform init` (MinIO) → `terraform validate` → `terraform plan -var-file=<vm>.tfvars`
-
----
-
-### `terraform-apply` — manual (`workflow_dispatch`)
-
-Provisions or updates a VM. Runs the same steps as plan, then `apply -auto-approve`.
-
-**Inputs:** same as `terraform-plan`.
-
-> Run `terraform-plan` first to review the diff before applying.
-
----
-
-### `terraform-destroy` — manual (`workflow_dispatch`)
-
-Destroys a VM. Includes a hard confirmation gate.
-
-**Inputs:**
-
-| Input | Description |
-|---|---|
-| `environment` | `dev` or `prod` |
-| `vm_name` | VM to destroy |
-| `confirm_destroy` | Must be exactly `yes` — any other value aborts the job |
-
----
-
-### `ansible-check` — runs on Pull Request
-
-Lints and syntax-checks all Ansible code before merging. No live VM required.
-
-Steps: install `ansible` + `ansible-lint` via pipx → `ansible-lint playbook.yml` → `ansible-playbook --syntax-check`
-
----
-
-### `ansible-deploy` — manual (`workflow_dispatch`)
-
-Runs the Ansible playbook against a VM that has already been provisioned by Terraform. Reads the VM IP directly from Terraform state via `terraform output`.
-
-**Inputs:**
-
-| Input | Description |
-|---|---|
-| `environment` | `dev` or `prod` |
-| `vm_name` | Must match the provisioned VM |
-
-**Steps:** checkout → validate env → install Ansible → init Terraform (to read state) → `terraform output -raw vm_ip` → wait for SSH (20 × 10 s) → write SSH private key → build inventory → `ansible-playbook`
-
----
-
-## Terraform State
-
-State is stored per VM in MinIO under:
-
-```
-terraform-state/state/<environment>/<vm_name>/terraform.tfstate
+# SSH Configuration
+variable "ansible_ssh_public_key" {
+  description = "SSH public key for ansible user"
+  type        = string
+}
 ```
 
-Example: `terraform-state/state/prod/prod01/terraform.tfstate`
+#### Outputs:
+```terraform
+output "vm_name" {
+  description = "Name of the deployed VM"
+  value       = lxd_instance.ubuntu_vm.name
+}
 
-The `backend "s3" {}` block in each env's `backend.tf` is intentionally empty — all
-backend config is passed at `init` time via `-backend-config` flags in the workflow,
-which reads values from org-level secrets.
+output "vm_ip" {
+  description = "IP address of the VM"
+  value       = lxd_instance.ubuntu_vm.ipv4_address
+}
 
-Required MinIO flags (always set in `terraform init`):
-
-```
-skip_credentials_validation = true
-skip_metadata_api_check     = true
-skip_requesting_account_id  = true
-force_path_style            = true
+output "ansible_ssh_command" {
+  description = "SSH command to connect to the VM"
+  value       = "ssh ansible@${lxd_instance.ubuntu_vm.ipv4_address}"
+}
 ```
 
 ---
 
-## Ansible Roles
+## Ansible Workflow Integration
 
-The playbook applies two roles in order, both requiring `become: true`.
+### Ansible Roles Structure:
+- **`common` role**: Installs essential packages (curl, git, python3, etc.)
+- **`docker` role**: Installs Docker CE and configures the service
 
-### `common`
-Installs base packages: `curl`, `unzip`, `git`, `ca-certificates`.
-Uses `cache_valid_time: 3600` to avoid redundant apt updates.
+### Workflow Integration:
+The `reusable-ansible-deploy.yml` workflow:
+1. **Retrieves VM IP** from Terraform state
+2. **Creates dynamic inventory** for Ansible
+3. **Waits for SSH connectivity** 
+4. **Deploys applications** using the defined playbook
 
-### `docker`
-Installs Docker CE from the official Docker apt repo:
-1. Adds the Docker GPG key to `/etc/apt/keyrings/`
-2. Adds the Docker apt repository (Ubuntu `jammy`)
-3. Installs `docker-ce`, `docker-ce-cli`, `containerd.io`
-4. Enables and starts the `docker` systemd service
-
----
-
-## cloud-init Details
-
-The `lxd-vm` module renders `cloud-init/user-data.yaml` as a Terraform template,
-injecting the `ansible_ssh_public_key` and the computed `vm_hostname`.
-
-On first boot the VM will:
-
-- Set hostname and FQDN to the full instance name
-- Configure DHCP on `enp5s0` via netplan
-- Create an `ansible` user with passwordless sudo and SSH key-only auth
-- Install: `curl`, `wget`, `git`, `python3`, `python3-pip`, `openssh-server`, `net-tools`
-- Write `/etc/ssh/sshd_config.d/99-ansible.conf` (disables password + root login)
-- Restart `sshd`
+### Key Ansible Features:
+- **Dynamic inventory generation** based on Terraform outputs
+- **SSH key-based authentication** with passwordless sudo
+- **Package management** via apt with caching
+- **Docker installation** from official repositories
 
 ---
 
-## Adding a New VM
+## Required Secrets & Configuration
 
-1. Create a `.tfvars` file under the correct environment folder:
+### Gitea Repository Secrets:
 
-```bash
-cp terraform/env/dev/dev01.tfvars terraform/env/dev/dev02.tfvars
-# Edit dev02.tfvars — adjust cpu_count, memory_size, disk_size as needed
+| Secret Name | Description | Required For |
+|-------------|-------------|--------------|
+| `MINIO_ENDPOINT` | MinIO S3 endpoint for Terraform state | All Terraform workflows |
+| `MINIO_ACCESS_KEY` | MinIO access key | All Terraform workflows |
+| `MINIO_SECRET_KEY` | MinIO secret key | All Terraform workflows |
+| `LXD_ADDRESS` | LXD server address | All Terraform workflows |
+| `ANSIBLE_SSH_PUBLIC_KEY` | SSH public key for VM access | All workflows |
+| `ANSIBLE_SSH_PRIVATE_KEY` | SSH private key for deployment | Ansible Deploy |
+| `LXD_TRUST_PASSWORD` | LXD trust password | Terraform workflows |
+| `LXD_CLIENT_CERT` | LXD client certificate (optional) | Terraform Apply/Destroy |
+| `LXD_CLIENT_KEY` | LXD client private key (optional) | Terraform Apply/Destroy |
+
+### Environment Configuration:
+
+#### Development Environment (`terraform/env/dev/dev01.tfvars`):
+```tfvars
+environment = "dev"
+vm_name = "dev01"
+os_type = "ubuntu"
+storage_pool = "default"
+disk_size = "20GB"
+cpu_count = 2
+memory_size = "2GB"
 ```
 
-2. Commit and push to Gitea. Open a PR to trigger `terraform-check` and `ansible-check`.
-
-3. After merging, run **Terraform Plan** from Gitea Actions → select `dev` / `dev02`.
-
-4. Review the plan output, then run **Terraform Apply**.
-
-5. Once the VM is up, run **Ansible Deploy** with the same inputs to configure it.
-
----
-
-## Local Usage
-
-```bash
-cd terraform/env/dev
-
-# Initialise with MinIO backend
-terraform init \
-  -backend-config="endpoint=http://<minio-ip>:9000" \
-  -backend-config="bucket=terraform-state" \
-  -backend-config="key=state/dev/dev01/terraform.tfstate" \
-  -backend-config="region=us-east-1" \
-  -backend-config="access_key=<key>" \
-  -backend-config="secret_key=<secret>" \
-  -backend-config="skip_credentials_validation=true" \
-  -backend-config="skip_metadata_api_check=true" \
-  -backend-config="skip_requesting_account_id=true" \
-  -backend-config="force_path_style=true"
-
-# Plan
-TF_VAR_lxd_address=<lxd-ip> \
-TF_VAR_ansible_ssh_public_key="$(cat ~/.ssh/id_ed25519.pub)" \
-TF_VAR_environment=dev \
-TF_VAR_vm_name=dev01 \
-terraform plan -var-file="dev01.tfvars"
-
-# Apply
-terraform apply -auto-approve -var-file="dev01.tfvars"
-
-# Get SSH command
-terraform output ansible_ssh_command
+#### Production Environment (`terraform/env/prod/prod01.tfvars`):
+```tfvars
+environment = "prod"
+vm_name = "prod01"
+os_type = "ubuntu"
+storage_pool = "default"
+disk_size = "40GB"
+cpu_count = 4
+memory_size = "4GB"
 ```
 
 ---
 
-## Roadmap
+## How to Use the Workflows
 
-| Feature | Status | Notes |
-|---|---|---|
-| **OpenBao** | Planned | Replace org-level secrets with a Vault-compatible secrets manager |
-| **Reusable GHA Workflows** | Planned | Centralise plan/apply/destroy into a shared `infra/shared-workflows` repo |
-| **Reusable Terraform Modules** | Planned | Publish `lxd-vm` module to a dedicated Gitea repo, consume via `git::http://` |
-| **Ansible Galaxy (self-hosted)** | Planned | Host roles on Gitea, reference in `requirements.yml` |
-| **oVirt integration** | Exploring | More enterprise-equivalent VM target alongside LXD |
-| **MicroK8s app pipeline** | Planned | Docker + Helm deployment track for Go workloads |
+### 1. Terraform Workflows
+
+#### Basic Usage:
+```yaml
+name: "Terraform Plan"
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment (dev/prod)"
+        required: true
+        type: string
+      vm_name:
+        description: "VM name (e.g., dev01, prod01)"
+        required: true
+
+jobs:
+  plan:
+    uses: <owner>/<repo>/.gitea/workflows/reusable-terraform-plan.yml@main
+    with:
+      environment: ${{ github.event.inputs.environment }}
+      vm_name: ${{ github.event.inputs.vm_name }}
+    secrets:
+      MINIO_ENDPOINT: ${{ secrets.MINIO_ENDPOINT }}
+      MINIO_ACCESS_KEY: ${{ secrets.MINIO_ACCESS_KEY }}
+      MINIO_SECRET_KEY: ${{ secrets.MINIO_SECRET_KEY }}
+      LXD_ADDRESS: ${{ secrets.LXD_ADDRESS }}
+      ANSIBLE_SSH_PUBLIC_KEY: ${{ secrets.ANSIBLE_SSH_PUBLIC_KEY }}
+      LXD_TRUST_PASSWORD: ${{ secrets.LXD_TRUST_PASSWORD }}
+```
+
+#### Workflow Features:
+- **Environment validation**: Only allows "dev" or "prod"
+- **tfvars file validation**: Ensures configuration files exist
+- **Terraform validation**: Format, init, and validate checks
+- **State management**: MinIO backend for remote state storage
+
+### 2. Ansible Workflows
+
+#### Basic Usage:
+```yaml
+name: "Ansible Deploy"
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment (dev/prod)"
+        required: true
+      vm_name:
+        description: "VM name (e.g., dev01, prod01)"
+        required: true
+
+jobs:
+  deploy:
+    uses: <owner>/<repo>/.gitea/workflows/reusable-ansible-deploy.yml@main
+    with:
+      environment: ${{ github.event.inputs.environment }}
+      vm_name: ${{ github.event.inputs.vm_name }}
+      ansible_playbook_path: "ansible/playbook.yml"
+    secrets:
+      MINIO_ENDPOINT: ${{ secrets.MINIO_ENDPOINT }}
+      MINIO_ACCESS_KEY: ${{ secrets.MINIO_ACCESS_KEY }}
+      MINIO_SECRET_KEY: ${{ secrets.MINIO_SECRET_KEY }}
+      LXD_ADDRESS: ${{ secrets.LXD_ADDRESS }}
+      ANSIBLE_SSH_PUBLIC_KEY: ${{ secrets.ANSIBLE_SSH_PUBLIC_KEY }}
+      ANSIBLE_SSH_PRIVATE_KEY: ${{ secrets.ANSIBLE_SSH_PRIVATE_KEY }}
+```
+
+#### Workflow Features:
+- **Terraform integration**: Retrieves VM IP from Terraform state
+- **SSH connectivity**: Waits for SSH to be ready before deployment
+- **Dynamic inventory**: Creates inventory file based on VM IP
+- **Error handling**: Validates playbook syntax before execution
+
+---
+
+## Workflow Usage Examples
+
+Complete examples are available in the `reusable-workflow-client-repo/` directory:
+
+### Example Workflow Files:
+- **`terraform-check.yml`**: PR validation for Terraform code
+- **`terraform-plan.yml`**: Infrastructure planning
+- **`terraform-apply.yml`**: Infrastructure deployment
+- **`terraform-destroy.yml`**: Infrastructure cleanup
+- **`ansible-check.yml`**: Ansible playbook validation
+- **`ansible-deploy.yml`**: Application deployment
+
+### Key Workflow Behaviors:
+- **PR triggers**: Automatic validation on pull requests
+- **Manual triggers**: On-demand workflow execution
+- **Environment separation**: Separate state and configurations for dev/prod
+- **Safety checks**: Confirmation required for destructive operations
+
+---
+
+## Cloud-init Configuration
+
+The `user-data.yaml` template provides:
+- **Network setup**: DHCP configuration with proper routing
+- **User creation**: `ansible` user with SSH access and sudo privileges
+- **Package installation**: Essential tools and Python packages
+- **SSH hardening**: Disabled password authentication, no root login
+- **Service configuration**: Automatic service restarts and logging
+
+---
+
+## Security Considerations
+
+### SSH Configuration:
+- **Key-based authentication only**
+- **Password authentication disabled**
+- **Root login disabled**
+- **Sudo access without password** for automation
+
+### Network Security:
+- **DHCP networking** with static route metrics
+- **Firewall rules** applied via cloud-init
+- **Network isolation** through LXD bridge networking
+
+### Access Control:
+- **Separate environments** with isolated configurations
+- **Secret management** through Gitea repository secrets
+- **State separation** via MinIO backend configuration
+
+---
+
+## Troubleshooting
+
+### Common Issues:
+
+**Terraform init failures**
+- Verify MinIO credentials and endpoint
+- Ensure MinIO bucket "terraform-state" exists
+- Check network connectivity to MinIO server
+
+**Ansible deployment failures**
+- Verify SSH keys are correct and have proper permissions
+- Ensure VM IP is accessible from runner
+- Check Ansible playbook syntax with the check workflow first
+
+**VM provisioning issues**
+- Verify LXD server address and connectivity
+- Check LXD storage pool availability
+- Ensure cloud-init template syntax is correct
+
+---
+
+## Support
+
+For issues or questions, refer to the workflow implementations in `.gitea/workflows/` or contact the repository maintainer. Complete usage examples are available in the `reusable-workflow-client-repo/` directory.
+
+---
+
+## 👨‍💻 Maintained by
+
+**Ali Ahmed**  
+Building infrastructure, automation, and DevOps workflows  
+
+[![GitHub](https://img.shields.io/badge/GitHub-aliahmed-black?style=for-the-badge&logo=github)](https://github.com/jeffreyalie)
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-aliahmed-blue?style=for-the-badge&logo=linkedin)](https://www.linkedin.com/in/ali-ahmed-261755252/)
+
+---
+
+## 💬 Contact
+
+Have questions, ideas, or want to collaborate?
+
+- Open an issue  
+- Or connect with me on LinkedIn  
+
+---
+
+## 📄 License
+
+This project is licensed under the MIT License.
+
+---
