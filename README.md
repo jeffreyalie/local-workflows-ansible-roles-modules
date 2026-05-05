@@ -460,7 +460,8 @@ When ready to scale, the natural evolution paths are:
 **Ali Ahmed**  
 Building infrastructure, automation, and DevOps workflows
 
-*Contact*
+**Contact**
+
 [![GitHub](https://img.shields.io/badge/GitHub-aliahmed-black?style=for-the-badge&logo=github)](https://github.com/jeffreyalie)
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-aliahmed-blue?style=for-the-badge&logo=linkedin)](https://www.linkedin.com/in/ali-ahmed-261755252/)
 ---
