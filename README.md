@@ -9,7 +9,7 @@ Deploy Ubuntu 24.04 virtual machines on LXD via Terraform (module-based), config
 - [Summary](#summary)
 - [Prerequisites](#prerequisites)
 - [Quick Steps to Deploy a VM](#quick-steps-to-deploy-a-vm)
-- [Architecture Overview](#architecture-overview)
+- [Architecture Overview](#architecture-overview---infrastrucutre---gha-workflow---secrets-workflow)
 - [Repository Structure](#repository-structure)
 - [Secrets & Variables](#secrets--variables)
 - [Workflows](#workflows)
@@ -73,31 +73,35 @@ This repository implements a complete infrastructure-as-code solution that:
 
 ---
 
-## Architecture Overview
+## Architecture Overview - (Infrastrucutre - GHA workflow - Secrets workflow)
 
 ```
                 ┌─────────────────────────────────────────┐
-                │           Gitea (gitea.local)            │
-                │   local-workflows-ansible-roles-modules  │
-                └───────────┬─────────────────────────────┘
-                            │ Gitea Actions triggers
-                            ▼
-                ┌─────────────────────────┐
-                │     Gitea Act Runner    │  (Docker-based, inside LXD VM)
-                └───────┬─────────┬───────┘
-                        │         │
-               Terraform│         │Ansible
-                        ▼         ▼
-          ┌─────────────────┐  ┌─────────────────┐
-          │   LXD / KVM     │  │   Target VM     │
-          │  (localhost:    │  │  (Ubuntu 24.04) │
-          │    8443)        │  │  ansible user   │
-          └─────────────────┘  └─────────────────┘
-                  │
-          ┌───────────────┐
-          │     MinIO     │  (Terraform state backend)
-          │ 10.248.42.22  │
-          └───────────────┘
+                │           Gitea (gitea.local)           │   (Org level secrets)
+                │   local-workflows-ansible-roles-modules │
+                └─────────────────┬───────────────────────┘
+                                  │ Gitea Actions triggers
+                                  ▼
+              ┌───────────────────────────────────────────┐
+              │     Gitea Act Runner                      │  (Docker-based, inside LXD VM) --- (Picks secrets from Org)
+              └───────┬───────────────────────────┬───────┘
+                      │                           │
+             Terraform│                           │Ansible
+                      ▼                           ▼
+              ┌─────────────────┐           ┌─────────────────┐
+              │      MinIO      │           │   Target VM     │
+              │    backend s3   │           │  (Ubuntu 24.04) │
+              │    (TF state)   │           │  ansible user   │
+              └─────────────────┘           └─────────────────┘
+                      │                    
+                      │ Creates VM
+                      │ 
+              ┌─────────────────┐ 
+              │   LXD / KVM     │ 
+              │  (localhost:    │ 
+              │    8443)        │ 
+              └─────────────────┘  
+      
 ```
 
 **This repo uses a module-based Terraform layout:**
