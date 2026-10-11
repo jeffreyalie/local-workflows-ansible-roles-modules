@@ -1,0 +1,21 @@
+---
+- name: Configure VM (Common + Docker)
+  hosts: all
+  become: true
+  gather_facts: true
+
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+
+  pre_tasks:
+    - name: Update apt cache (safe)
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+  roles:
+    - role: common
+      tags: [common]
+
+    - role: docker
+      tags: [docker]

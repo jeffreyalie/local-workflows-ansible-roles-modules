@@ -1,0 +1,14 @@
+---
+- name: Update apt cache (only if needed)
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Install common packages
+  ansible.builtin.apt:
+    name:
+      - curl
+      - unzip
+      - git
+      - ca-certificates
+    state: present

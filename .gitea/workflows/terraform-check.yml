@@ -1,0 +1,50 @@
+name: "Terraform Check"
+
+on:
+  pull_request: # This will run on PRs to validate Terraform code before merging
+  workflow_dispatch:  # This enables the "Run workflow" button in the UI
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: terraform
+
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      # -----------------------------
+      # Setup Terraform
+      # -----------------------------
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      # -----------------------------
+      # Format Check
+      # -----------------------------
+      - name: Terraform Format Check
+        run: terraform fmt -check -diff
+
+      # -----------------------------
+      # Init (no backend needed strictly, but safe for validate)
+      # -----------------------------
+      - name: Terraform Init
+        run: terraform init -backend=false
+
+      # -----------------------------
+      # Validate
+      # -----------------------------
+      - name: Terraform Validate
+        run: terraform validate
+
+      # -----------------------------
+      # TFLint
+      # -----------------------------
+      - name: Setup TFLint
+        uses: terraform-linters/setup-tflint@v3
+
+      - name: Run TFLint
+        run: tflint -f compact
