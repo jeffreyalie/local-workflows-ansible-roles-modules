@@ -11,7 +11,7 @@
 
 storage_pool = "default"
 os_type      = "ubuntu-vm"
-image        = "ubuntu-24-04-vm"
+image        = "ubuntu-26.04-vm"
 network      = "lxdbr0"
 disk_size    = "10GiB"
 cpu_count    = 2
