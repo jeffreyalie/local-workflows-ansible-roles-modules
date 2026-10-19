@@ -10,7 +10,7 @@
 # ansible_ssh_public_key = "ssh-ed25519 AAAA... user@host"
 
 storage_pool = "default"
-image        = "ubuntu-24-04-vm"
+image        = "ubuntu-26.04-vm"
 os_type      = "ubuntu-vm"
 network      = "lxdbr0"
 disk_size    = "10GiB"
