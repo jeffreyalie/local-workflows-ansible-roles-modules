@@ -73,36 +73,74 @@ This repository implements a complete infrastructure-as-code solution that:
 
 ---
 
-## Architecture Overview - (Infrastrucutre - GHA workflow - Secrets workflow)
+# VM deployment architecture - terraform - ansible - GHA runner - seaweed (S3) - Org level secrets
+
+---
+```
+ Developer / GitHub Actions Runner
+ ----main commands----
+ terraform plan / apply
+ ansible-playbook
+ ---------------------
+
+
+ Gitea / Developer
+ ┌─────────────────────────────────────────┐
+ │  Terraform, ansible                     │ ----------------------------(Org level secrets for rubber)
+ |  GHA workflows, roles                   │                                    ANSIBLE_SSH_PRIVATE_KEY 
+ |                                         |                                    ANSIBLE_SSH_PUBLIC_KEY
+ |                                         |                                    LXD_ADDRESS
+ |                                         |                                    LXD_CLIENT_CERT
+ |                                         |                                    LXD_CLIENT_KEY
+ |                                         |                                    S3_ACCESS_KEY
+ |                                         |                                    S3_BUCKET
+ |                                         |                                    S3_ENDPOINT
+ |                                         |                                    S3_SECRET_KEY 
+ |                                         |     
+ └─────────────────┬───────────────────────┘
+                   │
+                   |
+                   |
+                   ▼
+ ┌───────────────────────────────────────────┐
+ │        Runner / Developer                 │  ----------------------- (Runner picks secrets from Openbao )
+ |                                           |                          (Developer picks from env variables)
+ |       (Docker-based, LXD VM)              |  
+ |                                           |                             
+ |                                           |                           
+ |                                           |
+ └───────┬───────────────────────────┬───────┘
+         │                           │
+         |                           |
+         |                           |
+Terraform│ plan / apply              │Ansible-playbook
+         |                           |
+         |                           |       
+         ▼                           |
+ ┌─────────────────┐                 |               
+ │      MinIO      │                 |
+ │    backend s3   │                 |
+ │    (TF state)   │                 |
+ └─────────────────┘                 |
+         │                           |      
+         │                           |
+         │                           |
+ ┌─────────────────┐                 |               
+ │   LXD / KVM     │                 |
+ │  (localhost:    │                 |       
+ │    8443)        │                 |      
+ └─────────────────┘                 |
+         |                           |
+         |                           |
+         |                           |
+ ┌─────────────────┐                 |       
+ │  Target VM      │                 |      
+ │  Ubuntu 26.04   │ +---------------+                   
+ │With ansible user|
+ └─────────────────┘
 
 ```
-                ┌─────────────────────────────────────────┐
-                │           Gitea (gitea.local)           │   (Org level secrets)
-                │   local-workflows-ansible-roles-modules │
-                └─────────────────┬───────────────────────┘
-                                  │ Gitea Actions triggers
-                                  ▼
-              ┌───────────────────────────────────────────┐
-              │     Gitea Act Runner                      │  (Docker-based, inside LXD VM) --- (Picks secrets from Org)
-              └───────┬───────────────────────────┬───────┘
-                      │                           │
-             Terraform│                           │Ansible
-                      ▼                           ▼
-              ┌─────────────────┐           ┌─────────────────┐
-              │      MinIO      │           │   Target VM     │
-              │    backend s3   │           │  (Ubuntu 24.04) │
-              │    (TF state)   │           │  ansible user   │
-              └─────────────────┘           └─────────────────┘
-                      │                    
-                      │ Creates VM
-                      │ 
-              ┌─────────────────┐ 
-              │   LXD / KVM     │ 
-              │  (localhost:    │ 
-              │    8443)        │ 
-              └─────────────────┘  
-      
-```
+---
 
 **This repo uses a module-based Terraform layout:**
 - Each environment (`dev`, `prod`) has its own root module under `terraform/env/<env>/` that calls the shared `lxd-vm` module
