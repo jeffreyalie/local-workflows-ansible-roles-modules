@@ -1,25 +1,28 @@
-# LXD Ubuntu VM — Terraform + Ansible + Gitea Actions
+#                           VM deployment
 
-Deploy Ubuntu 24.04 virtual machines on LXD via Terraform (module-based), configure them with Ansible roles, all driven by local Gitea CI/CD workflows.
+Deploy Ubuntu 26.04 virtual machines on LXD via Terraform (module-based), configure them with Ansible roles, all driven by local Gitea CI/CD workflows.
 
 ---
 
 ## Table of Contents
 
-- [Summary](#summary)
-- [Prerequisites](#prerequisites)
-- [Quick Steps to Deploy a VM](#quick-steps-to-deploy-a-vm)
-- [Architecture Overview](#architecture-overview---infrastrucutre---gha-workflow---secrets-workflow)
-- [Repository Structure](#repository-structure)
-- [Secrets & Variables](#secrets--variables)
-- [Workflows](#workflows)
-- [Terraform: Resource Model](#terraform-resource-model)
-- [Ansible: Playbook & Roles](#ansible-playbook--roles)
-- [End-to-End Deployment Flow](#end-to-end-deployment-flow)
-- [Local Usage](#local-usage)
-- [Destroying a VM](#destroying-a-vm)
-- [Design Notes](#design-notes)
-- [Created and Maintained By](#infrastructure-created-and-maintained-by)
+Overview
+* [Summary](#summary)
+* [Folder Structure](#folder-structure)
+* [Infrastructure Archtecture - GHA - terraform - ansible - LXD - seaweed (S3) - Org level secrets](#infrastructure-archtecture---gha---terraform---ansible---lxd---seaweed-s3---org-level-secrets)
+
+Details
+* [Prerequisites](#prerequisites)
+* [Quick Steps to Deploy a VM](#quick-steps-to-deploy-a-vm)
+* [Secrets & Variables](#secrets--variables)
+* [Workflows](#workflows)
+* [Terraform: Resource Model](#terraform-resource-model)
+* [Ansible: Playbook & Roles](#ansible-playbook--roles)
+* [End-to-End Deployment Flow](#end-to-end-deployment-flow)
+* [Local Usage](#local-usage)
+* [Destroying a VM](#destroying-a-vm)
+* [Design Notes](#design-notes)
+* [Created and Maintained By](#infrastructure-created-and-maintained-by)
 
 ---
 
@@ -35,122 +38,7 @@ This repository implements a complete infrastructure-as-code solution that:
 
 ---
 
-## Prerequisites
-
-| Requirement | Notes |
-|---|---|
-| Ubuntu 24.04 host | LXD installed via snap, API at `https://localhost:8443` |
-| Gitea | Running at `http://gitea.local`, `Infra` org |
-| Gitea Act Runner | Docker-based runner registered to the `Infra` org |
-| MinIO | S3-compatible state backend at `http://10.248.42.22:9000` |
-| Terraform ≥ 1.5 | Installed on the runner |
-| LXD TLS certificates | Client cert/key for runner-to-LXD authentication |
-
----
-
-## Quick Steps to Deploy a VM
-
-1. **Clone the repo and create a feature branch**
-   ```bash
-   git clone http://gitea.local/infra/local-workflows-ansible-roles-modules.git
-   cd local-workflows-ansible-roles-modules
-   git checkout -b <env><vm_name>   # e.g. dev dev02
-   ```
-
-2. **Create a new `.tfvars` file** under `terraform/env/<env>/` — copy an existing one and adjust resources as needed (image, cpu, memory, disk)
-
-3. **Run Terraform Check and Plan** via Gitea Actions — go to Actions → `Terraform Check` / `Terraform Plan`, select your feature branch, enter environment and VM name
-
-4. **Run Ansible Check** via Gitea Actions — go to Actions → `Ansible Check`, select your feature branch to lint and syntax-check the playbook
-
-5. **Open a PR and merge** to `main` — the Check workflows run automatically on the PR; merge once green
-
-6. **Run Terraform Apply** via Gitea Actions — go to Actions → `Terraform Apply`, select `main` branch, enter environment and VM name; the VM is created on LXD
-
-7. **Run Ansible Deploy** via Gitea Actions — go to Actions → `Ansible Deploy`, select `main` branch, enter environment and VM name; Ansible roles are applied to the live VM
-
-8. **Run Terraform Destroy** (when done) via Gitea Actions — go to Actions → `Terraform Destroy`, select `main` branch, enter environment, VM name, and type `yes` to confirm
-
----
-
-# VM deployment architecture - terraform - ansible - GHA runner - seaweed (S3) - Org level secrets
-
----
-```
- Developer / GitHub Actions Runner
- ----main commands----
- terraform plan / apply
- ansible-playbook
- ---------------------
-
-
- Gitea / Developer
- ┌─────────────────────────────────────────┐
- │  Terraform, ansible                     │ ----------------------------(Org level secrets for rubber)
- |  GHA workflows, roles                   │                                    ANSIBLE_SSH_PRIVATE_KEY 
- |                                         |                                    ANSIBLE_SSH_PUBLIC_KEY
- |                                         |                                    LXD_ADDRESS
- |                                         |                                    LXD_CLIENT_CERT
- |                                         |                                    LXD_CLIENT_KEY
- |                                         |                                    S3_ACCESS_KEY
- |                                         |                                    S3_BUCKET
- |                                         |                                    S3_ENDPOINT
- |                                         |                                    S3_SECRET_KEY 
- |                                         |     
- └─────────────────┬───────────────────────┘
-                   │
-                   |
-                   |
-                   ▼
- ┌───────────────────────────────────────────┐
- │        Runner / Developer                 │  ----------------------- (Runner picks secrets from Openbao )
- |                                           |                          (Developer picks from env variables)
- |       (Docker-based, LXD VM)              |  
- |                                           |                             
- |                                           |                           
- |                                           |
- └───────┬───────────────────────────┬───────┘
-         │                           │
-         |                           |
-         |                           |
-Terraform│ plan / apply              │Ansible-playbook
-         |                           |
-         |                           |       
-         ▼                           |
- ┌─────────────────┐                 |               
- │      MinIO      │                 |
- │    backend s3   │                 |
- │    (TF state)   │                 |
- └─────────────────┘                 |
-         │                           |      
-         │                           |
-         │                           |
- ┌─────────────────┐                 |               
- │   LXD / KVM     │                 |
- │  (localhost:    │                 |       
- │    8443)        │                 |      
- └─────────────────┘                 |
-         |                           |
-         |                           |
-         |                           |
- ┌─────────────────┐                 |       
- │  Target VM      │                 |      
- │  Ubuntu 26.04   │ +---------------+                   
- │With ansible user|
- └─────────────────┘
-
-```
----
-
-**This repo uses a module-based Terraform layout:**
-- Each environment (`dev`, `prod`) has its own root module under `terraform/env/<env>/` that calls the shared `lxd-vm` module
-- The `lxd-vm` module encapsulates all LXD resource definitions and cloud-init rendering
-- Gitea Actions workflows are defined locally in `.gitea/workflows/` — not shared/reusable
-- Ansible uses local roles — no Ansible Galaxy or centralised role server
-
----
-
-## Repository Structure
+## Folder Structure
 
 ```
 .
@@ -195,6 +83,120 @@ Terraform│ plan / apply              │Ansible-playbook
 │           └── tasks/main.yml      # Docker CE install from upstream repo
 └── .gitignore
 ```
+## Infrastructure Archtecture - GHA - terraform - ansible - LXD - seaweed (S3) - Org level secrets
+
+```
+ Developer / GitHub Actions Runner
+ ----main commands----
+ terraform plan / apply
+ ansible-playbook
+ ---------------------
+
+
+ Gitea / Developer
+ ┌─────────────────────────────────────────┐
+ │  Terraform, ansible                     │ ----------------------------(Org level secrets for rubber)
+ |  GHA workflows, roles                   │                                    ANSIBLE_SSH_PRIVATE_KEY 
+ |                                         |                                    ANSIBLE_SSH_PUBLIC_KEY
+ |                                         |                                    LXD_ADDRESS
+ |                                         |                                    LXD_CLIENT_CERT
+ |                                         |                                    LXD_CLIENT_KEY
+ |                                         |                                    S3_ACCESS_KEY
+ |                                         |                                    S3_BUCKET
+ |                                         |                                    S3_ENDPOINT
+ |                                         |                                    S3_SECRET_KEY 
+ |                                         |     
+ └─────────────────┬───────────────────────┘
+                   │
+                   |
+                   |
+                   ▼
+ ┌───────────────────────────────────────────┐
+ │        Runner / Developer                 │  ----------------------- (Runner picks secrets from Openbao )
+ |                                           |                          (Developer picks from env variables)
+ |       (Docker-based, LXD VM)              |  
+ |                                           |                             
+ |                                           |                           
+ |                                           |
+ └───────┬───────────────────────────┬───────┘
+         │                           │
+         |                           |
+         |                           |
+Terraform│ plan / apply              │Ansible-playbook
+         |                           |
+         |                           |       
+         ▼                           |
+ ┌─────────────────┐                 |               
+ │      Seaweed    │                 |
+ │    backend s3   │                 |
+ │    (TF state)   │                 |
+ └─────────────────┘                 |
+         │                           |      
+         │                           |
+         │                           |
+ ┌─────────────────┐                 |               
+ │   LXD / KVM     │                 |
+ │  (localhost:    │                 |       
+ │    8443)        │                 |      
+ └─────────────────┘                 |
+         |                           |
+         |                           |
+         |                           |
+ ┌─────────────────┐                 |       
+ │  Target VM      │                 |      
+ │  Ubuntu 26.04   │ +---------------+                   
+ │With ansible user|
+ └─────────────────┘
+
+```
+---
+
+## Prerequisites
+
+| Requirement | Notes |
+|---|---|
+| Ubuntu 24.04 host | LXD installed via snap, API at `https://localhost:8443` |
+| Gitea | Running at `http://gitea.local`, `Infra` org |
+| Gitea Act Runner | Docker-based runner registered to the `Infra` org |
+| MinIO | S3-compatible state backend at `http://10.248.42.22:9000` |
+| Terraform ≥ 1.5 | Installed on the runner |
+| LXD TLS certificates | Client cert/key for runner-to-LXD authentication |
+
+---
+
+## Quick Steps to Deploy a VM
+
+1. **Clone the repo and create a feature branch**
+   ```bash
+   git clone http://gitea.local/infra/local-workflows-ansible-roles-modules.git
+   cd local-workflows-ansible-roles-modules
+   git checkout -b <env><vm_name>   # e.g. dev dev02
+   ```
+
+2. **Create a new `.tfvars` file** under `terraform/env/<env>/` — copy an existing one and adjust resources as needed (image, cpu, memory, disk)
+
+3. **Run Terraform Check and Plan** via Gitea Actions — go to Actions → `Terraform Check` / `Terraform Plan`, select your feature branch, enter environment and VM name
+
+4. **Run Ansible Check** via Gitea Actions — go to Actions → `Ansible Check`, select your feature branch to lint and syntax-check the playbook
+
+5. **Open a PR and merge** to `main` — the Check workflows run automatically on the PR; merge once green
+
+6. **Run Terraform Apply** via Gitea Actions — go to Actions → `Terraform Apply`, select `main` branch, enter environment and VM name; the VM is created on LXD
+
+7. **Run Ansible Deploy** via Gitea Actions — go to Actions → `Ansible Deploy`, select `main` branch, enter environment and VM name; Ansible roles are applied to the live VM
+
+8. **Run Terraform Destroy** (when done) via Gitea Actions — go to Actions → `Terraform Destroy`, select `main` branch, enter environment, VM name, and type `yes` to confirm
+
+---
+
+**This repo uses a module-based Terraform layout:**
+- Each environment (`dev`, `prod`) has its own root module under `terraform/env/<env>/` that calls the shared `lxd-vm` module
+- The `lxd-vm` module encapsulates all LXD resource definitions and cloud-init rendering
+- Gitea Actions workflows are defined locally in `.gitea/workflows/` — not shared/reusable
+- Ansible uses local roles — no Ansible Galaxy or centralised role server
+
+---
+
 
 ---
 
