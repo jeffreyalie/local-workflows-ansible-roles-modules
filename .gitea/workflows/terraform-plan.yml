@@ -13,18 +13,25 @@ on:
         required: true
 
 jobs:
-  terraform:
-    runs-on: ubuntu-latest
-
+  terraform: # job name
+    runs-on: ubuntu-latest # creates a docker container with ubuntu-latest image to run the job
+    #------------------------------------------------------------
     # S3 credentials for the SeaweedFS backend. Terraform reads these from the
     # environment, so they are available to both `init` and `plan` and are never
     # written into .terraform/ on disk.
+    #----------------------------------------------------------------------
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_KEY }}
       AWS_DEFAULT_REGION: us-east-1
 
+    #------------------------------------------------------------
+    # steps for the job terraform
+    #------------------------------------------------------------
     steps:
+      # -------------------------------------------------------------------
+      # Checkout Repo to get the Terraform code and tfvars files from the repository
+      # -------------------------------------------------------------------
       - name: Checkout Repo
         uses: actions/checkout@v4
 
