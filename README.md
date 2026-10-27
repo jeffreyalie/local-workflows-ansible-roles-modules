@@ -33,7 +33,7 @@ This repository implements a complete infrastructure-as-code solution that:
 - Provisions Ubuntu 24.04 VMs on LXD using Terraform with a reusable `lxd-vm` module
 - Configures VMs with cloud-init for automated setup
 - Deploys applications via Ansible playbooks and local roles
-- Manages environments (dev/prod) with separate state management per VM in MinIO
+- Manages environments (dev/prod) with separate state management per VM in Seaweed
 - Provides CI/CD automation through local Gitea Actions workflows
 
 ---
@@ -53,7 +53,7 @@ This repository implements a complete infrastructure-as-code solution that:
 ├── terraform/
 │   ├── env/
 │   │   ├── dev/
-│   │   │   ├── backend.tf          # S3 (MinIO) backend — empty config, filled at init
+│   │   │   ├── backend.tf          # S3 (Seaweed) backend — empty config, filled at init
 │   │   │   ├── providers.tf        # LXD provider + Terraform version constraints
 │   │   │   ├── main.tf             # Calls the lxd-vm module
 │   │   │   ├── variables.tf        # All input variables for this environment
@@ -158,7 +158,7 @@ Terraform│ plan / apply              │Ansible-playbook
 | Ubuntu 24.04 host | LXD installed via snap, API at `https://localhost:8443` |
 | Gitea | Running at `http://gitea.local`, `Infra` org |
 | Gitea Act Runner | Docker-based runner registered to the `Infra` org |
-| MinIO | S3-compatible state backend at `http://10.248.42.22:9000` |
+| Seaweed | S3-compatible state backend at `http://10.248.42.22:9000` |
 | Terraform ≥ 1.5 | Installed on the runner |
 | LXD TLS certificates | Client cert/key for runner-to-LXD authentication |
 
@@ -209,9 +209,9 @@ Configure all secrets at the **Gitea org level**: `Infra` → Settings → Secre
 | `LXD_ADDRESS` | Secret | Terraform | LXD API host (e.g. `192.168.x.x`) |
 | `LXD_CLIENT_CERT` | Secret | Terraform | TLS client certificate (PEM) |
 | `LXD_CLIENT_KEY` | Secret | Terraform | TLS client key (PEM) |
-| `MINIO_ENDPOINT` | Secret | Terraform | MinIO S3 API URL |
-| `MINIO_ACCESS_KEY` | Secret | Terraform | MinIO access key |
-| `MINIO_SECRET_KEY` | Secret | Terraform | MinIO secret key |
+| `S3_ENDPOINT` | Secret | Terraform | Seaweed S3 API URL |
+| `S3_ACCESS_KEY` | Secret | Terraform | Seaweed access key |
+| `S3_SECRET_KEY` | Secret | Terraform | Seaweed secret key |
 | `ANSIBLE_SSH_PUBLIC_KEY` | Secret | Terraform | Injected into VM via cloud-init |
 | `ANSIBLE_SSH_PRIVATE_KEY` | Secret | Ansible | Used by runner to SSH into VM |
 
@@ -245,7 +245,7 @@ Steps:
 1. Validates environment input (only `dev` / `prod` allowed)
 2. Resolves `tfvars_file` and `state_key` paths from inputs
 3. Writes LXD TLS certs to `~/.config/lxc/`
-4. `terraform init` against MinIO backend, working in `terraform/env/<env>/`
+4. `terraform init` against Seaweed backend, working in `terraform/env/<env>/`
 5. `terraform plan` with the resolved `.tfvars` file
 
 ---
@@ -295,7 +295,7 @@ Inputs:
 
 Steps:
 1. Validates environment
-2. Inits Terraform against MinIO to read existing state from `terraform/env/<env>/`
+2. Inits Terraform against Seaweed to read existing state from `terraform/env/<env>/`
 3. Reads VM IP from `terraform output -raw vm_ip`
 4. Polls SSH port (up to 20 × 10s) until the VM is reachable
 5. Writes `ANSIBLE_SSH_PRIVATE_KEY` to `~/.ssh/id_rsa`
@@ -344,7 +344,7 @@ Examples:
 
 ### State Backend Path
 
-State is stored in MinIO at:
+State is stored in Seaweed at:
 ```
 s3://terraform-state/state/<environment>/<vm_name>/terraform.tfstate
 ```
@@ -435,7 +435,7 @@ Both roles live locally under `ansible/roles/`. There is no external Galaxy depe
 cp terraform/env/dev/dev01.tfvars terraform/env/dev/dev02.tfvars
 # Add lxd_address and ansible_ssh_public_key as env vars
 
-# 2. Init with MinIO backend (from the env directory)
+# 2. Init with Seaweed backend (from the env directory)
 cd terraform/env/dev
 terraform init \
   -backend-config="endpoint=http://10.248.42.22:9000" \
