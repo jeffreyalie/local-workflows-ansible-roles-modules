@@ -197,9 +197,6 @@ Terraform│ plan / apply              │Ansible-playbook
 
 ---
 
-
----
-
 ## Secrets & Variables
 
 Configure all secrets at the **Gitea org level**: `Infra` → Settings → Secrets and Variables.
